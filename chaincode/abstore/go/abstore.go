@@ -1,174 +1,84 @@
-/*
-Copyright IBM Corp. 2016 All Rights Reserved.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-		 http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package main
 
 import (
-	"errors"
-	"fmt"
-	"strconv"
-	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+    "encoding/json"
+    "fmt"
+    
+    "github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
 
-// ABstore Chaincode implementation
-type ABstore struct {
-	contractapi.Contract
+// IdentityContract 체인코드의 스마트 계약 구조체
+type IdentityContract struct {
+    contractapi.Contract
 }
 
-func (t *ABstore) Init(ctx contractapi.TransactionContextInterface, A string, Aval int, B string, Bval int, C string, Cval int) error {
-	fmt.Println("ABstore Init")
-	var err error
-	// Initialize the chaincode
-	fmt.Printf("Aval = %d, Bval = %d\n, Cval = %d\n", Aval, Bval,Cval)
-	// Write the state to the ledger
-	err = ctx.GetStub().PutState(A, []byte(strconv.Itoa(Aval)))
-	if err != nil {
-		return err
-	}
-
-	err = ctx.GetStub().PutState(B, []byte(strconv.Itoa(Bval)))
-	if err != nil {
-		return err
-	}
-
-	err = ctx.GetStub().PutState(C, []byte(strconv.Itoa(Cval)))
-	if err != nil {
-		return err
-	}
-
-
-	return nil
+// Identity 신원 정보를 나타내는 구조체
+type Identity struct {
+    Name     string `json:"name"`
+    Gender   string `json:"gender"`
+    DOB      string `json:"dob"` // Date of Birth
+    Contact  string `json:"contact"`
+    IDNumber string `json:"idNumber"`
 }
 
-// Transaction makes payment of X units from A to B
-func (t *ABstore) Invoke(ctx contractapi.TransactionContextInterface, A, B, C string, X int) error {
-	var err error
-	var Aval int
-	var Bval int
-	var Cval int
-	// Get the state from the ledger
-	// TODO: will be nice to have a GetAllState call to ledger
-	Avalbytes, err := ctx.GetStub().GetState(A)
-	if err != nil {
-		return fmt.Errorf("Failed to get state")
-	}
-	if Avalbytes == nil {
-		return fmt.Errorf("Entity not found")
-	}
-	Aval, _ = strconv.Atoi(string(Avalbytes))
+// CreateIdentity 신원 정보를 생성하는 함수
+func (s *IdentityContract) CreateIdentity(ctx contractapi.TransactionContextInterface, name string, gender string, dob string, contact string, idNumber string) error {
+    // 신원 정보가 이미 존재하는지 확인
+    identityJSON, err := ctx.GetStub().GetState(idNumber)
+    if err != nil {
+        return fmt.Errorf("failed to read from world state: %v", err)
+    }
+    if identityJSON != nil {
+        return fmt.Errorf("identity with ID %s already exists", idNumber)
+    }
 
-	Bvalbytes, err := ctx.GetStub().GetState(B)
-	if err != nil {
-		return fmt.Errorf("Failed to get state")
-	}
-	if Bvalbytes == nil {
-		return fmt.Errorf("Entity not found")
-	}
-	Bval, _ = strconv.Atoi(string(Bvalbytes))
-
-	Cvalbytes, err := ctx.GetStub().GetState(C)
-	if err != nil {
-		return fmt.Errorf("Failed to get state")
-	}
-	if Cvalbytes == nil {
-		return fmt.Errorf("Entity not found")
-	}
-	Cval, _ = strconv.Atoi(string(Cvalbytes))
-	
-	// Perform the execution
-	Aval = Aval - X
-	Bval = Bval + X - ( X / 10 )
-	Cval = Cval + ( X / 10 )
-	fmt.Printf("Aval = %d, Bval = %d, Cval = %d\n", Aval, Bval, Cval)
-
-	// Write the state back to the ledger
-	err = ctx.GetStub().PutState(A, []byte(strconv.Itoa(Aval)))
-	if err != nil {
-		return err
-	}
-
-	err = ctx.GetStub().PutState(B, []byte(strconv.Itoa(Bval)))
-	if err != nil {
-		return err
-	}
-
-	err = ctx.GetStub().PutState(C, []byte(strconv.Itoa(Cval)))
-	if err != nil {
-		return err
-	}
-
-	return nil
+    // 새로운 신원 정보 생성
+    identity := Identity{
+        Name:     name,
+        Gender:   gender,
+        DOB:      dob,
+        Contact:  contact,
+        IDNumber: idNumber,
+    }
+ 
+    // 신원 정보를 JSON 형식으로 변환하여 월드 스테이트에 저장
+    identityJSON, err = json.Marshal(identity)
+    if err != nil {
+        return err
+    }
+ 
+    return ctx.GetStub().PutState(idNumber, identityJSON)
 }
 
-// Delete  an entity from state
-func (t *ABstore) Delete(ctx contractapi.TransactionContextInterface, A string) error {
+// QueryIdentity 신원 정보를 조회하는 함수
+func (s *IdentityContract) QueryIdentity(ctx contractapi.TransactionContextInterface, idNumber string) (*Identity, error) {
+    // 월드 스테이트에서 신원 정보를 가져와서 구조체로 언마샬링
+    identityJSON, err := ctx.GetStub().GetState(idNumber)
+    if err != nil {
+        return nil, fmt.Errorf("failed to read from world state: %v", err)
+    }
+    if identityJSON == nil {
+        return nil, fmt.Errorf("identity with ID %s does not exist", idNumber)
+    }
 
-	// Delete the key from the state in ledger
-	err := ctx.GetStub().DelState(A)
-	if err != nil {
-		return fmt.Errorf("Failed to delete state")
-	}
-
-	return nil
-}
-
-// Query callback representing the query of a chaincode
-func (t *ABstore) Query(ctx contractapi.TransactionContextInterface, A string) (string, error) {
-	var err error
-	// Get the state from the ledger
-	Avalbytes, err := ctx.GetStub().GetState(A)
-	if err != nil {
-		jsonResp := "{\"Error\":\"Failed to get state for " + A + "\"}"
-		return "", errors.New(jsonResp)
-	}
-
-	if Avalbytes == nil {
-		jsonResp := "{\"Error\":\"Nil amount for " + A + "\"}"
-		return "", errors.New(jsonResp)
-	}
-
-	jsonResp := "{\"Name\":\"" + A + "\",\"Amount\":\"" + string(Avalbytes) + "\"}"
-	fmt.Printf("Query Response:%s\n", jsonResp)
-	return string(Avalbytes), nil
-}
-
-func (t *ABstore) GetAllQuery(ctx contractapi.TransactionContextInterface) ([]string, error) {
-    resultsIterator, err := ctx.GetStub().GetStateByRange("", "")
+    var identity Identity
+    err = json.Unmarshal(identityJSON, &identity)
     if err != nil {
         return nil, err
     }
-    defer resultsIterator.Close()
-    var wallet []string
-    for resultsIterator.HasNext() {
-        queryResponse, err := resultsIterator.Next()
-        if err != nil {
-            return nil, err
-        }
-        jsonResp := "{\"Name\":\"" + string(queryResponse.Key) + "\",\"Amount\":\"" + string(queryResponse.Value) + "\"}"
-        wallet = append(wallet, jsonResp)
-    }
-    return wallet, nil
+
+    return &identity, nil
 }
 
+
 func main() {
-	cc, err := contractapi.NewChaincode(new(ABstore))
-	if err != nil {
-		panic(err.Error())
-	}
-	if err := cc.Start(); err != nil {
-		fmt.Printf("Error starting ABstore chaincode: %s", err)
-	}
+    identityChaincode, err := contractapi.NewChaincode(&IdentityContract{})
+    if err != nil {
+        fmt.Printf("Error creating identity chaincode: %s", err)
+        return
+    }
+
+    if err := identityChaincode.Start(); err != nil {
+        fmt.Printf("Error starting identity chaincode: %s", err)
+    }
 }
